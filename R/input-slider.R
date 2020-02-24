@@ -79,7 +79,7 @@ sliderInput <- function(inputId, label, min, max, value, step = NULL,
                         round = FALSE, format = NULL, locale = NULL,
                         ticks = TRUE, animate = FALSE, width = NULL, sep = ",",
                         pre = NULL, post = NULL, timeFormat = NULL,
-                        timezone = NULL, dragRange = TRUE)
+                        timezone = NULL, dragRange = TRUE, skin = c("big", "flat", "modern", "round", "sharp", "square"))
 {
   if (!missing(format)) {
     shinyDeprecated(msg = "The `format` argument to sliderInput is deprecated. Use `sep`, `pre`, and `post` instead.",
@@ -141,9 +141,12 @@ sliderInput <- function(inputId, label, min, max, value, step = NULL,
     n_ticks <- NULL
   }
 
+  skin <- match.arg(skin)
+
   sliderProps <- dropNulls(list(
     class = "js-range-slider",
     id = inputId,
+    `data-skin` = skin,
     `data-type` = if (length(value) > 1) "double",
     `data-min` = formatNoSci(min),
     `data-max` = formatNoSci(max),
@@ -205,13 +208,19 @@ sliderInput <- function(inputId, label, min, max, value, step = NULL,
     )
   }
 
+  # TODO: look into updating to 2.3.1
   deps <- list(
     htmlDependency("ionrangeslider", "2.1.6", c(href="shared/ionrangeslider"),
       script = "js/ion.rangeSlider.min.js",
       # ion.rangeSlider also needs normalize.css, which is already included in
       # Bootstrap.
-      stylesheet = c("css/ion.rangeSlider.css",
-                     "css/ion.rangeSlider.skinShiny.css")
+      stylesheet = c(
+        "css/ion.rangeSlider.css",
+        sprintf(
+          "css/ion.rangeSlider.skin%s.css",
+          tools::toTitleCase(skin)
+        )
+      )
     ),
     htmlDependency("strftime", "0.9.2", c(href="shared/strftime"),
       script = "strftime-min.js"
@@ -219,23 +228,27 @@ sliderInput <- function(inputId, label, min, max, value, step = NULL,
   )
 
   if (hasBsTheme()) {
-    scss <- system.file(package = "shiny", "www", "shared", "ionrangeslider", "scss")
-    declarations <- if ("3" %in% bootstraplib::theme_version()) "declarations3.scss" else "declarations.scss"
+    irs_file <- system.file(package = "shiny", "www", "shared", "ionrangeslider", "scss", "irs.scss")
     css <- bootstraplib::bootstrap_sass(
       list(
-        sass::sass_file(file.path(scss, declarations)),
-        sass::sass_file(file.path(scss, "rules.scss"))
-      )
+        sass::sass_file(irs_file),
+        # Override the hard-coded font family/size
+        # https://github.com/IonDen/ion.rangeSlider/blob/ef3c9fa/less/_base.less#L7-L8
+        if ("3" %in% bootstraplib::theme_version()) {
+          ".irs {font-size: $font-size-small; font-family: $font-family-base}"
+        } else {
+          ".irs {font-size: $input-font-size; font-family: $input-font-family}"
+        }
+      ),
+      theme = sass::sass_layer_merge(bs_theme_get(), skinVariablesLayer(skin))
     )
     tmpdir <- tempfile("ion-scss")
     dir.create(tmpdir)
     writeLines(css, file.path(tmpdir, "slider-custom.css"))
-    deps <- c(
-      deps,
-      list(htmlDependency(
-        "ionrangeslider-skin", "2.1.6", tmpdir,
-        stylesheet = "slider-custom.css"
-      ))
+    deps[[1]] <- htmlDependency(
+      "ionrangeslider", "2.3.1", tmpdir,
+      stylesheet = "slider-custom.css",
+      head = format(tags$script(src = "shared/ionrangeslider/js/ion.rangeSlider.min.js"))
     )
   }
 
@@ -245,6 +258,59 @@ sliderInput <- function(inputId, label, min, max, value, step = NULL,
 hasDecimals <- function(value) {
   truncatedValue <- round(value)
   return (!identical(value, truncatedValue))
+}
+
+skinVariablesLayer <- function(skin) {
+  # TODO: maybe instead of gray(), we should lighten/darken $input-bg/$input-color?
+  vars <- switch(skin,
+    big = list(
+      "line_color_1"      = "$input-bg",
+      "line_color_2"      = "gray('200')",
+      "line_color_3"      = "gray('100')",
+      "bar_color"         = "$primary",
+      "handle_color_1"    = "gray('200')",
+      "handle_color_2"    = "gray('300')",
+      "handle_color_3"    = "$input-bg",
+      "handle_color_4"    = "gray('400')",
+      "minmax_text_color" = "$input-bg",
+      "minmax_bg_color"   = "gray('400')",
+      "label_color_1"     = "$primary",
+      "label_color_2"     = "$input-bg",
+      "grid_color_1"      = "$primary"
+    ),
+    flat = list(
+      "line_color"        = "gray('100')",
+      "bar_color"         = "$primary",
+      "handle_color_1"    = "darken($primary, 10%)",
+      "handle_color_2"    = "darken($primary, 20%)",
+      "minmax_text_color" = "gray('400')",
+      "minmax_bg_color"   = "gray('100')",
+      "label_color_1"     = "$primary",
+      "label_color_2"     = "$input-bg",
+      "grid_color_1"      = "gray('100')",
+      "grid_color_2"      = "gray('400')"
+    ),
+    modern = list(
+      "line_color"        = "gray('200')",
+      "bar_color"         = "$primary",
+      "handle_color_1"    = "gray('100')",
+      "handle_color_2"    = "$input-bg",
+      "handle_color_3"    = "$input-color",
+      "minmax_text_color" = "$input-bg",
+      "minmax_bg_color"   = "gray('200')",
+      "label_color_1"     = "$primary",
+      "label_color_2"     = "$input-bg",
+      "grid_color_1"      = "gray('100')",
+      "grid_color_2"      = "gray('200')"
+    ),
+    round = list(),
+    sharp = list(),
+    square = list(),
+    list()
+  )
+
+  vars <- lapply(vars, function(x) paste(x, "!default"))
+  sass::sass_layer(declarations = vars)
 }
 
 
